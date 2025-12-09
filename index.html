@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CellTech Parts Tracker - Chantilly, VA (1210402040)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f4; }
+        .dashboard { max-width: 1200px; margin: 0 auto; }
+        .cards { display: flex; gap: 20px; margin-bottom: 30px; }
+        .card { flex: 1; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center; }
+        .card h3 { margin: 0 0 10px; }
+        .card-value { font-size: 2em; font-weight: bold; color: #333; }
+        .charts { display: flex; gap: 20px; margin-bottom: 30px; }
+        .chart-container { flex: 1; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        #table-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #f0f0f0; }
+        .search { width: 100%; padding: 10px; margin-bottom: 10px; }
+        .status-green { color: green; } .status-yellow { color: orange; } .status-red { color: red; }
+        @media (max-width: 768px) { .cards, .charts { flex-direction: column; } }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <h1>CellTech Parts Tracker - Chantilly, VA (ID: 1210402040)</h1>
+        <p>آخرین آپدیت: <span id="last-update"></span> | فقط داده‌های لوکیشن شما</p>
+        
+        <div class="cards">
+            <div class="card">
+                <h3>Total Claims</h3>
+                <div class="card-value" id="total-claims">0</div>
+            </div>
+            <div class="card">
+                <h3>LCD Parts</h3>
+                <div class="card-value" id="lcd-count">0</div>
+            </div>
+            <div class="card">
+                <h3>System Board</h3>
+                <div class="card-value" id="board-count">0</div>
+            </div>
+            <div class="card">
+                <h3>Other Parts</h3>
+                <div class="card-value" id="other-count">0</div>
+            </div>
+        </div>
+        
+        <div class="charts">
+            <div class="chart-container">
+                <h3>Part Types Distribution (Pie Chart)</h3>
+                <canvas id="pieChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3>Top Models by Parts (Bar Chart)</h3>
+                <canvas id="barChart"></canvas>
+            </div>
+        </div>
+        
+        <div id="table-container">
+            <input type="text" id="search" class="search" placeholder="Search by Claim ID or Part Number...">
+            <table id="parts-table">
+                <thead>
+                    <tr>
+                        <th>Claim ID</th>
+                        <th>Product ID (Model)</th>
+                        <th>Part 1 (e.g., LCD)</th>
+                        <th>Part 2 (e.g., Board)</th>
+                        <th>Service Date</th>
+                        <th>Status (Estimated)</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let data = []; // Global data from CSV
+
+        // Load CSV
+        Papa.parse('data.csv', {
+            download: true,
+            header: true,
+            complete: function(results) {
+                data = results.data.filter(row => row['Location Id'] === '1210402040' && row['Claim_Ref_Id']); // Filter for your location
+                updateDashboard();
+                document.getElementById('last-update').textContent = new Date().toLocaleString();
+            }
+        });
+
+        function updateDashboard() {
+            // Cards
+            document.getElementById('total-claims').textContent = data.length;
+            const lcdCount = data.filter(row => row['Part1 Product ID New']?.includes('5D11') || row['Part2 Product ID New']?.includes('5D11')).length;
+            const boardCount = data.filter(row => row['Part1 Product ID New']?.includes('5B21') || row['Part2 Product ID New']?.includes('5B21')).length;
+            const otherCount = data.length - lcdCount - boardCount;
+            document.getElementById('lcd-count').textContent = lcdCount;
+            document.getElementById('board-count').textContent = boardCount;
+            document.getElementById('other-count').textContent = otherCount;
+
+            // Pie Chart: Part Types
+            const partTypes = { LCD: lcdCount, 'System Board': boardCount, Other: otherCount };
+            const pieCtx = document.getElementById('pieChart').getContext('2d');
+            new Chart(pieCtx, {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(partTypes),
+                    datasets: [{ data: Object.values(partTypes), backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'] }]
+                },
+                options: { responsive: true }
+            });
+
+            // Bar Chart: Models
+            const models = {};
+            data.forEach(row => {
+                const model = row['Product ID'] || 'Unknown';
+                models[model] = (models[model] || 0) + 1;
+            });
+            const barCtx = document.getElementById('barChart').getContext('2d');
+            new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(models).slice(0, 10), // Top 10
+                    datasets: [{ label: 'Claims per Model', data: Object.values(models).slice(0, 10), backgroundColor: '#36A2EB' }]
+                },
+                options: { responsive: true, scales: { y: { beginAtZero: true } } }
+            });
+
+            // Table
+            renderTable(data);
+        }
+
+        function renderTable(filteredData) {
+            const tbody = document.querySelector('#parts-table tbody');
+            tbody.innerHTML = '';
+            filteredData.forEach(row => {
+                const tr = document.createElement('tr');
+                const status = getStatus(row); // Simple status based on date
+                tr.innerHTML = `
+                    <td>${row['Claim_Ref_Id'] || ''}</td>
+                    <td>${row['Product ID'] || ''}</td>
+                    <td>${row['Part1 Product ID New'] || ''}</td>
+                    <td>${row['Part2 Product ID New'] || ''}</td>
+                    <td>${row['Service Date'] || ''}</td>
+                    <td class="status-${status}">${status}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function getStatus(row) {
+            const date = new Date(row['Service Date']);
+            const daysDiff = (new Date() - date) / (1000 * 60 * 60 * 24);
+            if (daysDiff < 3) return 'green'; // New
+            if (daysDiff < 7) return 'yellow'; // In Progress
+            return 'red'; // Delayed
+        }
+
+        // Search
+        document.getElementById('search').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            const filtered = data.filter(row =>
+                row['Claim_Ref_Id']?.toLowerCase().includes(term) ||
+                row['Part1 Product ID New']?.toLowerCase().includes(term)
+            );
+            renderTable(filtered);
+        });
+    </script>
+</body>
+</html>
